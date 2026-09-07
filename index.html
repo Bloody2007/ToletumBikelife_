@@ -381,6 +381,10 @@
     .admin-link { color: var(--text-muted); text-decoration: none; font-size: 0.7rem; border: 1px dashed var(--border-color); padding: 3px 6px; border-radius: 4px; }
     .admin-link:hover { color: var(--neon-cyan); border-color: var(--neon-cyan); }
   </style>
+
+  <!-- SDKs de Firebase (v9 Compat) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 </head>
 <body>
 
@@ -750,6 +754,125 @@
   </footer>
 
   <script>
+    // -------------------------------------------------------------
+    // CONFIGURACIÓN DE FIREBASE (REEMPLAZA ESTOS DATOS CON LOS TUYOS)
+    // -------------------------------------------------------------
+    const firebaseConfig = {
+      apiKey: "TU_API_KEY",
+      authDomain: "TU_PROYECTO.firebaseapp.com",
+      databaseURL: "https://TU_PROYECTO-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "TU_PROYECTO",
+      storageBucket: "TU_PROYECTO.appspot.com",
+      messagingSenderId: "1234567890",
+      appId: "1:1234567890:web:abcdef123456"
+    };
+
+    // Inicializar Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // -------------------------------------------------------------
+    // LOGICA GLOBAL & VARIABLES
+    // -------------------------------------------------------------
+    const CONFIG_TIENDA = {
+      emailPedidos: "ignaseo10@gmail.com",
+      numeroBizum: "+34 600 000 000",
+      linkPayPal: "https://paypal.me/tuUsuarioPayPal",
+      instagramUrl: "https://www.instagram.com/toletum_bikelife/",
+      tiktokUrl: "https://www.tiktok.com/@toletumbikelife"
+    };
+
+    let adminUsers = [
+      {
+        user: 'bloody',
+        pass: '@brezo777',
+        permissions: ['orders', 'add', 'stock', 'tiktok', 'game', 'giveaway', 'admins']
+      }
+    ];
+    let currentLoggedInAdmin = null;
+
+    let tiktokVideos = [];
+    let products = [];
+    let gameConfig = {
+      targetDistance: 15000,
+      discountPercent: 60,
+      status: 'always',
+      startLevel: 1,
+      endTime: 0
+    };
+    let giveawayData = {
+      status: 'disabled',
+      title: 'Pack Exclusive Toletum Streetwear',
+      endTime: 0,
+      desc: '¡Sorteamos un pack exclusivo bikelife con sudadera y pasamontañas oficial TOLETUM BIKELIFE®!'
+    };
+    let giveawayParticipants = [];
+    let ordersList = [];
+
+    // -------------------------------------------------------------
+    // CONEXION EN TIEMPO REAL CON FIREBASE
+    // -------------------------------------------------------------
+    
+    // Escuchar Ropa / Productos
+    db.ref('products').on('value', (snapshot) => {
+      const data = snapshot.val();
+      products = data ? (Array.isArray(data) ? data : Object.values(data)) : [];
+      renderProducts();
+      renderAdminStock();
+    });
+
+    // Escuchar Pedidos
+    db.ref('orders').on('value', (snapshot) => {
+      const data = snapshot.val();
+      ordersList = data ? Object.keys(data).map(key => ({ _fbKey: key, ...data[key] })) : [];
+      renderAdminOrders();
+    });
+
+    // Escuchar TikToks
+    db.ref('tiktoks').on('value', (snapshot) => {
+      const data = snapshot.val();
+      tiktokVideos = data ? (Array.isArray(data) ? data : Object.values(data)) : [];
+      renderTiktokVideos();
+      renderAdminTiktoks();
+    });
+
+    // Escuchar Configuración del Juego
+    db.ref('gameConfig').on('value', (snapshot) => {
+      const data = snapshot.val();
+      if (data) gameConfig = data;
+      checkGameVisibility();
+      updateGameUI();
+    });
+
+    // Escuchar Sorteos
+    db.ref('giveaway').on('value', (snapshot) => {
+      const data = snapshot.val();
+      if (data) giveawayData = data;
+      renderGiveawaySection();
+    });
+
+    // Escuchar Participantes de Sorteo
+    db.ref('gw_participants').on('value', (snapshot) => {
+      const data = snapshot.val();
+      giveawayParticipants = data ? Object.values(data) : [];
+      if(currentLoggedInAdmin) loadGiveawayToAdmin();
+    });
+
+    // Escuchar Administradores
+    db.ref('adminUsers').on('value', (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        adminUsers = Array.isArray(data) ? data : Object.values(data);
+      } else {
+        // Guardar admin por defecto si no existe ninguno
+        db.ref('adminUsers').set(adminUsers);
+      }
+      renderAdminAccounts();
+    });
+
+    // -------------------------------------------------------------
+    // INTERFAZ Y TRANSICIONES
+    // -------------------------------------------------------------
     document.addEventListener("DOMContentLoaded", () => {
       const secciones = document.querySelectorAll(".seccion-transicion");
       const observer = new IntersectionObserver((entradas) => {
@@ -762,63 +885,6 @@
 
       secciones.forEach((seccion) => observer.observe(seccion));
     });
-
-    const CONFIG_TIENDA = {
-      emailPedidos: "ignaseo10@gmail.com",
-      numeroBizum: "+34 600 000 000",
-      linkPayPal: "https://paypal.me/tuUsuarioPayPal",
-      instagramUrl: "https://www.instagram.com/toletum_bikelife/",
-      tiktokUrl: "https://www.tiktok.com/@toletumbikelife"
-    };
-
-    let adminUsers = JSON.parse(localStorage.getItem('tlt_admin_users')) || [
-      {
-        user: 'bloody',
-        pass: '@brezo777',
-        permissions: ['orders', 'add', 'stock', 'tiktok', 'game', 'giveaway', 'admins']
-      }
-    ];
-    let currentLoggedInAdmin = null;
-
-    let tiktokVideos = JSON.parse(localStorage.getItem('tlt_tiktok_videos')) || [
-      "https://www.tiktok.com/embed/v2/7100000000000000000"
-    ];
-
-    let products = JSON.parse(localStorage.getItem('tlt_products')) || [
-      {
-        id: 1,
-        name: "Pasamontañas Bikelife TLT Black Out",
-        price: 24.99,
-        stock: 5,
-        image: "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80",
-        desc: "Pasamontañas térmico para rodadas con bordado reflectante TOLETUM BIKELIFE®."
-      },
-      {
-        id: 2,
-        name: "Sudadera Heavyweight Wheelie King",
-        price: 59.99,
-        stock: 2,
-        image: "https://images.unsplash.com/photo-1556905055-8f358a7a47b2?w=500&q=80",
-        desc: "Sudadera 450GSM resistente al aire. Diseño bikelife urbano TOLETUM BIKELIFE® de Toledo."
-      }
-    ];
-
-    let gameConfig = JSON.parse(localStorage.getItem('tlt_game_config')) || {
-      targetDistance: 15000,
-      discountPercent: 60,
-      status: 'always',
-      startLevel: 1,
-      endTime: 0
-    };
-
-    let giveawayData = JSON.parse(localStorage.getItem('tlt_giveaway')) || {
-      status: 'disabled',
-      title: 'Pack Exclusive Toletum Streetwear',
-      endTime: 0,
-      desc: '¡Sorteamos un pack exclusivo bikelife con sudadera y pasamontañas oficial TOLETUM BIKELIFE®!'
-    };
-    let giveawayParticipants = JSON.parse(localStorage.getItem('tlt_gw_participants')) || [];
-    let ordersList = JSON.parse(localStorage.getItem('tlt_orders')) || [];
 
     const realCrossBikes = [
       {
@@ -938,16 +1004,6 @@
       document.getElementById('footerTtLink').href = CONFIG_TIENDA.tiktokUrl;
     }
 
-    function saveToLocalStorage() {
-      localStorage.setItem('tlt_products', JSON.stringify(products));
-      localStorage.setItem('tlt_orders', JSON.stringify(ordersList));
-      localStorage.setItem('tlt_game_config', JSON.stringify(gameConfig));
-      localStorage.setItem('tlt_giveaway', JSON.stringify(giveawayData));
-      localStorage.setItem('tlt_gw_participants', JSON.stringify(giveawayParticipants));
-      localStorage.setItem('tlt_tiktok_videos', JSON.stringify(tiktokVideos));
-      localStorage.setItem('tlt_admin_users', JSON.stringify(adminUsers));
-    }
-
     function checkGameVisibility() {
       const gameSection = document.getElementById('game');
       const gameLink = document.getElementById('navGameLink');
@@ -967,7 +1023,7 @@
           gameSection.style.display = 'none';
           gameLink.style.display = 'none';
           gameConfig.status = 'disabled';
-          saveToLocalStorage();
+          db.ref('gameConfig').set(gameConfig);
         }
       }
     }
@@ -975,6 +1031,11 @@
     function renderProducts() {
       const grid = document.getElementById('productGrid');
       grid.innerHTML = '';
+
+      if(products.length === 0) {
+        grid.innerHTML = '<p style="color:var(--text-muted); grid-column:1/-1;">No hay productos disponibles por el momento.</p>';
+        return;
+      }
 
       products.forEach(p => {
         const isAgotado = p.stock <= 0;
@@ -988,11 +1049,11 @@
           <div class="product-info">
             <h3>${p.name}</h3>
             <p style="font-size:0.75rem; color: var(--text-muted); margin-bottom: 8px;">${p.desc || ''}</p>
-            <div style="margin-bottom: 4px;"><span class="product-price">${p.price.toFixed(2)} €</span></div>
+            <div style="margin-bottom: 4px;"><span class="product-price">${Number(p.price).toFixed(2)} €</span></div>
             <div class="stock-tag ${isAgotado ? 'out-stock' : 'in-stock'}">
               ${isAgotado ? 'AGOTADO' : `Stock: ${p.stock} ud.`}
             </div>
-            <button class="btn-buy" ${isAgotado ? 'disabled' : ''} onclick="openCheckout(${p.id})">
+            <button class="btn-buy" ${isAgotado ? 'disabled' : ''} onclick="openCheckout('${p.id}')">
               ${isAgotado ? 'AGOTADO' : 'Comprar Prenda'}
             </button>
           </div>
@@ -1029,20 +1090,16 @@
       }
 
       tiktokVideos.push(embedUrl);
-      saveToLocalStorage();
-      renderTiktokVideos();
-      renderAdminTiktoks();
+      db.ref('tiktoks').set(tiktokVideos);
 
       document.getElementById('newTiktokUrl').value = '';
-      alert("¡Vídeo de TikTok añadido con éxito!");
+      alert("¡Vídeo de TikTok añadido con éxito a la web!");
     }
 
     function deleteTiktokVideo(index) {
       if (confirm("¿Seguro que deseas eliminar este vídeo de TikTok?")) {
         tiktokVideos.splice(index, 1);
-        saveToLocalStorage();
-        renderTiktokVideos();
-        renderAdminTiktoks();
+        db.ref('tiktoks').set(tiktokVideos);
       }
     }
 
@@ -1083,7 +1140,7 @@
         navLink.style.display = 'none';
         if (giveawayData.status === 'active' && now >= giveawayData.endTime) {
           giveawayData.status = 'disabled';
-          saveToLocalStorage();
+          db.ref('giveaway').set(giveawayData);
         }
         return;
       }
@@ -1106,7 +1163,7 @@
             timerInterval = null;
           }
           giveawayData.status = 'disabled';
-          saveToLocalStorage();
+          db.ref('giveaway').set(giveawayData);
           section.style.display = 'none';
           navLink.style.display = 'none';
           return;
@@ -1130,9 +1187,7 @@
             <button type="submit" class="btn-primary" style="padding: 10px 16px; background: var(--neon-pink); color: #fff;">Participar</button>
           </form>
         `;
-      }
-
-      updateCountdown();
+       updateCountdown();
       timerInterval = setInterval(updateCountdown, 1000);
     }
 
@@ -1141,26 +1196,25 @@
       const email = document.getElementById('gwUserEmail').value;
       if (!email) return;
 
-      giveawayParticipants.push({ email: email, date: new Date().toLocaleDateString() });
-      saveToLocalStorage();
+      db.ref('gw_participants').push({ email: email, date: new Date().toLocaleDateString() });
       alert("¡Te has inscrito correctamente en el sorteo de TOLETUM BIKELIFE®!");
       document.getElementById('gwUserEmail').value = '';
     }
 
     let selectedProductId = null;
     function openCheckout(id) {
-      const prod = products.find(p => p.id === id);
+      const prod = products.find(p => String(p.id) === String(id));
       if(!prod || prod.stock <= 0) return;
 
       selectedProductId = id;
-      document.getElementById('checkoutProductInfo').textContent = `Producto: ${prod.name} - ${prod.price.toFixed(2)} €`;
+      document.getElementById('checkoutProductInfo').textContent = `Producto: ${prod.name} - ${Number(prod.price).toFixed(2)} €`;
       document.getElementById('checkoutModal').style.display = 'flex';
     }
     function closeCheckout() { document.getElementById('checkoutModal').style.display = 'none'; }
 
     async function processOrder(e) {
       e.preventDefault();
-      const prod = products.find(p => p.id === selectedProductId);
+      const prod = products.find(p => String(p.id) === String(selectedProductId));
       if(!prod || prod.stock <= 0) {
         alert("Producto no disponible.");
         return;
@@ -1172,7 +1226,9 @@
       const address = document.getElementById('custAddress').value;
       const payment = document.getElementById('paymentMethod').value;
 
+      // Descontar Stock en Firebase
       prod.stock -= 1;
+      db.ref('products').set(products);
 
       const orderId = 'PED-' + Math.floor(1000 + Math.random() * 9000);
       const newOrder = {
@@ -1188,11 +1244,11 @@
         status: 'Pedido',
         date: new Date().toLocaleDateString()
       };
-      ordersList.push(newOrder);
 
-      saveToLocalStorage();
-      renderProducts();
+      // Registrar Pedido en Firebase
+      db.ref('orders').push(newOrder);
 
+      // Enviar email vía FormSubmit
       const formData = new FormData();
       formData.append("_subject", `¡NUEVO PEDIDO TOLETUM BIKELIFE®! ID: ${orderId}`);
       formData.append("ID Pedido", orderId);
@@ -1216,7 +1272,7 @@
         window.location.href = `mailto:${CONFIG_TIENDA.emailPedidos}?subject=Pedido ${encodeURIComponent(name)}&body=${bodyText}`;
       }
 
-      alert("¡Pedido realizado con éxito! Se ha enviado una notificación con los detalles a ignaseo10@gmail.com.");
+      alert("¡Pedido realizado con éxito! Se ha enviado al Panel de Control.");
 
       if (payment === 'Bizum') alert(`Realiza el Bizum de ${prod.price}€ a: ${CONFIG_TIENDA.numeroBizum}`);
       else window.open(CONFIG_TIENDA.linkPayPal, '_blank');
@@ -1269,11 +1325,7 @@
       tabs.forEach(tabKey => {
         const tabBtn = document.getElementById(`tab${tabKey.charAt(0).toUpperCase() + tabKey.slice(1)}Btn`);
         if (tabBtn) {
-          if (allowed.includes(tabKey)) {
-            tabBtn.style.display = 'inline-block';
-          } else {
-            tabBtn.style.display = 'none';
-          }
+          tabBtn.style.display = allowed.includes(tabKey) ? 'inline-block' : 'none';
         }
       });
     }
@@ -1284,7 +1336,7 @@
     }
 
     function switchAdminTab(tab) {
-      if (!currentLoggedInAdmin.permissions.includes(tab)) {
+      if (!currentLoggedInAdmin || !currentLoggedInAdmin.permissions.includes(tab)) {
         alert("No tienes permiso para acceder a esta sección.");
         return;
       }
@@ -1324,8 +1376,7 @@
       }
 
       adminUsers.push({ user: u, pass: p, permissions: permissions });
-      saveToLocalStorage();
-      renderAdminAccounts();
+      db.ref('adminUsers').set(adminUsers);
 
       alert(`Administrador "${u}" creado exitosamente.`);
       document.getElementById('newAdminUser').value = '';
@@ -1340,8 +1391,7 @@
 
       if (confirm(`¿Seguro que deseas eliminar el administrador "${username}"?`)) {
         adminUsers = adminUsers.filter(a => a.user !== username);
-        saveToLocalStorage();
-        renderAdminAccounts();
+        db.ref('adminUsers').set(adminUsers);
       }
     }
 
@@ -1414,7 +1464,7 @@
           <p style="margin-bottom:6px; font-size:0.85rem;"><strong>Fecha:</strong> ${o.date}</p>
           <p style="margin-bottom:6px; font-size:0.85rem;"><strong>Cliente:</strong> ${o.customerName}</p>
           <p style="margin-bottom:6px; font-size:0.85rem;"><strong>Email:</strong> ${o.customerEmail}</p>
-          <p style="margin-bottom:6px; font-size:0.85rem;"><strong>Producto:</strong> ${o.productName} (${o.price.toFixed(2)} €)</p>
+          <p style="margin-bottom:6px; font-size:0.85rem;"><strong>Producto:</strong> ${o.productName} (${Number(o.price).toFixed(2)} €)</p>
           <p style="margin-bottom:6px; font-size:0.85rem;"><strong>Tipo de Entrega:</strong> ${o.delivery}</p>
           <p style="margin-bottom:6px; font-size:0.85rem;"><strong>Dirección:</strong> ${o.address || 'No especificada / Entrega en mano'}</p>
           <p style="margin-bottom:6px; font-size:0.85rem;"><strong>Método de Pago:</strong> ${o.payment}</p>
@@ -1432,10 +1482,11 @@
     }
 
     function togglePaymentStatus(index) {
-      ordersList[index].paid = !ordersList[index].paid;
-      saveToLocalStorage();
-      closeOrderDetail();
-      renderAdminOrders();
+      const key = ordersList[index]._fbKey;
+      if (key) {
+        db.ref('orders/' + key + '/paid').set(!ordersList[index].paid);
+        closeOrderDetail();
+      }
     }
 
     function closeOrderDetail() {
@@ -1444,16 +1495,16 @@
     }
 
     function setOrderStatus(index, newStatus) {
-      ordersList[index].status = newStatus;
-      saveToLocalStorage();
-      renderAdminOrders();
+      const key = ordersList[index]._fbKey;
+      if (key) {
+        db.ref('orders/' + key + '/status').set(newStatus);
+      }
     }
 
     function deleteOrder(index) {
-      if (confirm("¿Seguro que deseas eliminar este pedido del historial?")) {
-        ordersList.splice(index, 1);
-        saveToLocalStorage();
-        renderAdminOrders();
+      const key = ordersList[index]._fbKey;
+      if (key && confirm("¿Seguro que deseas eliminar este pedido del historial?")) {
+        db.ref('orders/' + key).remove();
       }
     }
 
@@ -1464,13 +1515,13 @@
         tbody.innerHTML += `
           <tr>
             <td>${p.name}</td>
-            <td>${p.price.toFixed(2)} €</td>
+            <td>${Number(p.price).toFixed(2)} €</td>
             <td>
               <input type="number" id="stockInput_${p.id}" value="${p.stock}" style="width: 60px; padding: 4px; background:#000; border:1px solid #444; color:#fff; border-radius:4px;">
             </td>
             <td>
-              <button onclick="updateStock(${p.id})" style="padding: 4px 8px; background: var(--neon-cyan); border:none; color:#000; font-weight:bold; cursor:pointer; border-radius:4px; margin-right:4px;">Guardar</button>
-              <button onclick="deleteProduct(${p.id})" style="padding: 4px 8px; background: var(--neon-pink); border:none; color:#fff; font-weight:bold; cursor:pointer; border-radius:4px;">Borrar</button>
+              <button onclick="updateStock('${p.id}')" style="padding: 4px 8px; background: var(--neon-cyan); border:none; color:#000; font-weight:bold; cursor:pointer; border-radius:4px; margin-right:4px;">Guardar</button>
+              <button onclick="deleteProduct('${p.id}')" style="padding: 4px 8px; background: var(--neon-pink); border:none; color:#fff; font-weight:bold; cursor:pointer; border-radius:4px;">Borrar</button>
             </td>
           </tr>
         `;
@@ -1482,21 +1533,18 @@
       const val = parseInt(input.value);
       if(isNaN(val) || val < 0) return;
 
-      const p = products.find(prod => prod.id === id);
+      const p = products.find(prod => String(prod.id) === String(id));
       if(p) {
         p.stock = val;
-        saveToLocalStorage();
-        renderProducts();
+        db.ref('products').set(products);
         alert(`Stock actualizado para ${p.name}`);
       }
     }
 
     function deleteProduct(id) {
       if(confirm("¿Seguro que quieres eliminar este producto de la web?")) {
-        products = products.filter(p => p.id !== id);
-        saveToLocalStorage();
-        renderProducts();
-        renderAdminStock();
+        products = products.filter(p => String(p.id) !== String(id));
+        db.ref('products').set(products);
       }
     }
 
@@ -1518,11 +1566,9 @@
       };
 
       products.push(newProd);
-      saveToLocalStorage();
-      renderProducts();
-      renderAdminStock();
+      db.ref('products').set(products);
 
-      alert("¡Producto añadido correctamente!");
+      alert("¡Producto añadido correctamente y publicado globalmente!");
       switchAdminTab('stock');
       
       document.getElementById('newProdName').value = '';
@@ -1555,10 +1601,8 @@
         gameConfig.endTime = 0;
       }
 
-      saveToLocalStorage();
-      checkGameVisibility();
-      updateGameUI();
-      alert("¡Configuración del juego y niveles actualizada!");
+      db.ref('gameConfig').set(gameConfig);
+      alert("¡Configuración del juego actualizada globalmente!");
     }
 
     function updateGameUI() {
@@ -1600,18 +1644,12 @@
         giveawayData.endTime = 0;
       }
 
-      saveToLocalStorage();
-      renderGiveawaySection();
+      db.ref('giveaway').set(giveawayData);
       alert(status === 'active' ? `¡Sorteo activado durante ${hours} horas!` : "Sorteo desactivado u oculto.");
     }
 
     renderMotoSelector();
     initSocialLinks();
-    renderProducts();
-    renderTiktokVideos();
-    renderGiveawaySection();
-    checkGameVisibility();
-    updateGameUI();
 
     function spawnRandomBgBike() {
       const container = document.getElementById('bgBikesContainer');
@@ -1934,41 +1972,28 @@
       drawGame();
     }
 
+    function gameOver(reason) {
+      gameRunning = false;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = '#ff0055';
+      ctx.font = 'bold 28px Oswald';
+      ctx.textAlign = 'center';
+      ctx.fillText(reason, canvas.width / 2, 160);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '16px Plus Jakarta Sans';
+      ctx.fillText(`Distancia Recorrida: ${distanceCovered}m`, canvas.width / 2, 200);
+
+      ctx.fillStyle = '#00f0ff';
+      ctx.font = 'bold 14px Plus Jakarta Sans';
+      ctx.fillText('PULSA "ARRANCAR MOTO" PARA INTENTARLO DE NUEVO', canvas.width / 2, 240);
+    }
+
     function drawPixelRect(x, y, w, h, color) {
       ctx.fillStyle = color;
       ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
-    }
-
-    function drawFactionLogo(x, y, type) {
-      ctx.save();
-      ctx.translate(x, y);
-
-      if (type === 'local') {
-        drawPixelRect(-25, -30, 50, 60, '#003399');
-        drawPixelRect(-20, -25, 40, 50, '#ffffff');
-        drawPixelRect(-15, -20, 30, 20, '#003399');
-        drawPixelRect(-10, 5, 20, 15, '#ff0055');
-      } else if (type === 'cnp') {
-        drawPixelRect(-25, -30, 50, 60, '#0b132b');
-        drawPixelRect(-20, -25, 40, 50, '#00f0ff');
-        drawPixelRect(-12, -15, 24, 24, '#ffffff');
-        drawPixelRect(-6, 12, 12, 8, '#ff0055');
-      } else if (type === 'gc') {
-        drawPixelRect(-25, -30, 50, 60, '#064e3b');
-        drawPixelRect(-20, -25, 40, 50, '#10b981');
-        drawPixelRect(-12, -15, 24, 24, '#ffffff');
-      } else if (type === 'gar') {
-        drawPixelRect(-25, -30, 50, 60, '#111827');
-        drawPixelRect(-20, -25, 40, 50, '#ff0055');
-        drawPixelRect(-5, -20, 10, 40, '#f59e0b');
-        drawPixelRect(-15, -5, 30, 10, '#f59e0b');
-      } else if (type === 'pegaso') {
-        drawPixelRect(-25, -30, 50, 60, '#78350f');
-        drawPixelRect(-20, -25, 40, 50, '#f59e0b');
-        drawPixelRect(-15, -10, 30, 20, '#000000');
-      }
-
-      ctx.restore();
     }
 
     function drawGame() {
@@ -2046,407 +2071,36 @@
           ctx.fillStyle = '#fff';
           ctx.font = 'bold 9px Plus Jakarta Sans';
           ctx.fillText(div.text, copX + 45, copY + 41);
-
-          ctx.fillStyle = '#000';
-          ctx.beginPath(); ctx.arc(copX + 28, copY + 58, 11, 0, Math.PI * 2); ctx.fill();
-          ctx.beginPath(); ctx.arc(copX + 98, copY + 58, 11, 0, Math.PI * 2); ctx.fill();
-
-          ctx.fillStyle = (Math.floor(elapsedFrames / 10) % 2 === 0) ? '#ff0055' : '#00f0ff';
-          ctx.fillRect(copX + 50, copY + 2, 25, 6);
         }
       }
 
       ctx.save();
-      ctx.translate(340, 270);
-      ctx.rotate(-angle * Math.PI / 180);
+      ctx.translate(340, 290);
+      ctx.rotate((-angle * Math.PI) / 180);
 
-      ctx.fillStyle = '#111';
-      ctx.beginPath(); ctx.arc(0, -18, 18, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(90, -18, 18, 0, Math.PI * 2); ctx.fill();
+      drawPixelRect(-40, 0, 80, 12, selectedBike.color);
+      drawPixelRect(-20, -25, 40, 25, '#1e1e24');
+      drawPixelRect(20, -20, 10, 20, '#00f0ff');
 
-      ctx.strokeStyle = selectedBike.color; ctx.lineWidth = 4;
-      ctx.beginPath(); ctx.moveTo(0, -18); ctx.lineTo(45, -45); ctx.lineTo(90, -18); ctx.stroke();
-      drawPixelRect(25, -42, 30, 12, selectedBike.color);
+      ctx.fillStyle = '#111'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(-35, 10, 14, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(35, 10, 14, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
 
-      drawPixelRect(18, -58, 24, 28, '#0b0b0e');
-      ctx.fillStyle = '#111116';
-      ctx.beginPath(); ctx.arc(30, -68, 11, 0, Math.PI * 2); ctx.fill();
-      drawPixelRect(33, -71, 7, 4, '#f8fafc');
-
-      ctx.restore();
-
-      const levelDists = getLevelDistances();
-      const targetDist = levelDists[level - 1];
-      ctx.fillStyle = '#ffffff'; ctx.font = '900 15px Oswald';
-      ctx.fillText(`MOTO: ${selectedBike.name} | NIVEL ${level}/${MAX_LEVELS} | ${distanceCovered}m / ${targetDist}m`, 20, 30);
-
-      if (isTransitioning) {
-        const div = policeDivisions[level - 1];
-        const timeLeft = Math.ceil(transitionTimer / 50);
-
-        ctx.fillStyle = 'rgba(5, 5, 7, 0.92)';
-        ctx.fillRect(80, 40, 640, 280);
-        ctx.strokeStyle = div.color; ctx.lineWidth = 3;
-        ctx.strokeRect(80, 40, 640, 280);
-
-        drawFactionLogo(400, 110, div.badgeType);
-
-        ctx.fillStyle = '#ffffff'; ctx.font = '900 28px Oswald'; ctx.textAlign = 'center';
-        ctx.fillText(`¡ENTRANDO EN NIVEL ${level}!`, 400, 185);
-
-        ctx.fillStyle = div.color; ctx.font = '700 18px Oswald';
-        ctx.fillText(`ENEMIGO: ${div.name}`, 400, 215);
-
-        ctx.fillStyle = '#8e8e99'; ctx.font = '14px Plus Jakarta Sans';
-        ctx.fillText(div.subtitle, 400, 240);
-
-        ctx.fillStyle = '#ff0055'; ctx.font = '900 22px Oswald';
-        ctx.fillText(`LA PERSECUCIÓN COMIENZA EN: ${timeLeft}s`, 400, 280);
-
-        ctx.textAlign = 'left';
-      }
-
-      if (winGame) {
-        ctx.fillStyle = 'rgba(5, 5, 7, 0.95)';
-        ctx.fillRect(100, 60, 600, 240);
-        ctx.strokeStyle = '#00f0ff'; ctx.lineWidth = 3;
-        ctx.strokeRect(100, 60, 600, 240);
-
-        ctx.fillStyle = '#00f0ff'; ctx.font = '900 32px Oswald'; ctx.textAlign = 'center';
-        ctx.fillText('¡COMPLETADO CON ÉXITO! 🏆', 400, 120);
-        ctx.fillStyle = '#ffffff'; ctx.font = '16px Plus Jakarta Sans';
-        ctx.fillText(`Has superado los 5 niveles con tu ${selectedBike.name}.`, 400, 165);
-        ctx.fillStyle = '#ff0055'; ctx.font = 'bold 24px Oswald';
-        ctx.fillText(`${gameConfig.discountPercent}% DE DESCUENTO DESBLOQUEADO`, 400, 220);
-        ctx.textAlign = 'left';
-      }
+      drawPixelRect(5, -45, 15, 25, '#ffffff'); 
+      drawPixelRect(8, -60, 12, 15, '#000000'); 
+      drawPixelRect(10, -58, 8, 4, '#00f0ff'); 
 
       ctx.restore();
-    }
 
-    function gameOver(reason) {
-      gameRunning = false;
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
-      drawGame();
-      ctx.fillStyle = '#ff0055'; ctx.font = '900 20px Oswald'; ctx.textAlign = 'center';
-      ctx.fillText(reason, 400, 190);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 16px Oswald';
       ctx.textAlign = 'left';
+      ctx.fillText(`NIVEL ${level}: ${policeDivisions[level - 1].name}`, 20, 30);
+      ctx.fillText(`MOTO: ${selectedBike.name.toUpperCase()}`, 20, 50);
+      ctx.fillText(`DISTANCIA: ${distanceCovered}m / ${gameConfig.targetDistance}m`, 20, 70);
+
+      ctx.restore();
     }
-
-    drawGame();
-    <script>
-    // --- Estado Global App ---
-    let products = JSON.parse(localStorage.getItem('tlt_products')) || [
-      { id: 1, name: 'Sudadera Heavy Weight TLT', price: 45.00, stock: 15, img: 'https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&w=600&q=80', desc: 'Sudadera de corte oversize con bordados HD.' },
-      { id: 2, name: 'Camiseta Street Toledo', price: 25.00, stock: 20, img: 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=600&q=80', desc: '100% Algodón peinado de alto gramaje.' }
-    ];
-
-    let tiktoks = JSON.parse(localStorage.getItem('tlt_tiktoks')) || ['7123456789012345678'];
-    let orders = JSON.parse(localStorage.getItem('tlt_orders')) || [];
-    let admins = JSON.parse(localStorage.getItem('tlt_admins')) || [{ user: 'admin', pass: '1234', perms: ['orders', 'add', 'stock', 'tiktok', 'game', 'giveaway', 'admins'] }];
-    let currentAdmin = null;
-    let selectedProductForBuy = null;
-
-    // --- Carga Inicial ---
-    document.addEventListener('DOMContentLoaded', () => {
-      renderProducts();
-      renderTiktoks();
-      initScrollObserver();
-    });
-
-    function saveProducts() { localStorage.setItem('tlt_products', JSON.stringify(products)); }
-    function saveOrders() { localStorage.setItem('tlt_orders', JSON.stringify(orders)); }
-
-    function renderProducts() {
-      const grid = document.getElementById('productGrid');
-      grid.innerHTML = products.map(p => `
-        <div class="product-card">
-          <div class="product-image-container">
-            <span class="product-brand-tag">TOLETUM</span>
-            <img src="${p.img}" class="product-img" alt="${p.name}">
-          </div>
-          <div class="product-info">
-            <h3>${p.name}</h3>
-            <div class="product-price">${p.price.toFixed(2)} €</div>
-            <div class="stock-tag ${p.stock > 0 ? 'in-stock' : 'out-stock'}">
-              ${p.stock > 0 ? `Stock Disponible (${p.stock})` : 'Agotado'}
-            </div>
-            <button class="btn-buy" ${p.stock <= 0 ? 'disabled' : ''} onclick="openCheckout(${p.id})">
-              ${p.stock > 0 ? 'Comprar' : 'Sin Stock'}
-            </button>
-          </div>
-        </div>
-      `).join('');
-    }
-
-    function renderTiktoks() {
-      const grid = document.getElementById('tiktokGrid');
-      grid.innerHTML = tiktoks.map(id => `
-        <div class="tiktok-card">
-          <iframe src="https://www.tiktok.com/embed/v2/${id}" allowfullscreen></iframe>
-        </div>
-      `).join('');
-    }
-
-    function openCheckout(productId) {
-      selectedProductForBuy = products.find(p => p.id === productId);
-      if (!selectedProductForBuy) return;
-      document.getElementById('checkoutProductInfo').innerText = `Comprando: ${selectedProductForBuy.name} - ${selectedProductForBuy.price.toFixed(2)} €`;
-      document.getElementById('checkoutModal').style.display = 'flex';
-    }
-
-    function closeCheckout() {
-      document.getElementById('checkoutModal').style.display = 'none';
-      selectedProductForBuy = null;
-    }
-
-    function processOrder(e) {
-      e.preventDefault();
-      if (!selectedProductForBuy || selectedProductForBuy.stock <= 0) return;
-
-      selectedProductForBuy.stock--;
-      saveProducts();
-      renderProducts();
-
-      const newOrder = {
-        id: 'ORD-' + Date.now().toString().slice(-5),
-        product: selectedProductForBuy.name,
-        customer: document.getElementById('custName').value,
-        email: document.getElementById('custEmail').value,
-        payment: document.getElementById('paymentMethod').value,
-        status: 'Pedido Registrado'
-      };
-
-      orders.push(newOrder);
-      saveOrders();
-      closeCheckout();
-      alert('¡Pedido procesado con éxito!');
-    }
-
-    // --- Panel de Administración ---
-    function openLoginModal() { document.getElementById('loginModal').style.display = 'flex'; }
-    function closeLoginModal() { document.getElementById('loginModal').style.display = 'none'; }
-
-    function handleLogin(e) {
-      e.preventDefault();
-      const u = document.getElementById('adminUser').value;
-      const p = document.getElementById('adminPass').value;
-
-      const found = admins.find(a => a.user === u && a.pass === p);
-      if (found) {
-        currentAdmin = found;
-        closeLoginModal();
-        openAdminPanel();
-      } else {
-        alert('Credenciales incorrectas');
-      }
-    }
-
-    function openAdminPanel() {
-      document.getElementById('currentAdminBadge').innerText = `@${currentAdmin.user}`;
-      document.getElementById('adminPanelModal').style.display = 'flex';
-      switchAdminTab('orders');
-    }
-
-    function closeAdminPanel() { document.getElementById('adminPanelModal').style.display = 'none'; }
-
-    function switchAdminTab(tab) {
-      const tabs = ['orders', 'add', 'stock', 'tiktok', 'game', 'giveaway', 'admins'];
-      tabs.forEach(t => {
-        const el = document.getElementById(`tab${t.charAt(0).toUpperCase() + t.slice(1)}`);
-        const btn = document.getElementById(`tab${t.charAt(0).toUpperCase() + t.slice(1)}Btn`);
-        if (el) el.style.display = (t === tab) ? 'block' : 'none';
-        if (btn) btn.classList.toggle('active', t === tab);
-      });
-
-      if (tab === 'orders') renderAdminOrders();
-      if (tab === 'stock') renderAdminStock();
-      if (tab === 'admins') renderAdminList();
-    }
-
-    function renderAdminOrders() {
-      const body = document.getElementById('ordersTableBody');
-      body.innerHTML = orders.map(o => `
-        <tr>
-          <td>${o.id}</td>
-          <td>${o.product}</td>
-          <td>${o.customer} (${o.email})</td>
-          <td>${o.payment}</td>
-          <td>${o.status}</td>
-          <td>-</td>
-        </tr>
-      `).join('');
-    }
-
-    function renderAdminStock() {
-      const body = document.getElementById('stockTableBody');
-      body.innerHTML = products.map((p, idx) => `
-        <tr>
-          <td>${p.name}</td>
-          <td>${p.price.toFixed(2)} €</td>
-          <td>${p.stock}</td>
-          <td><button onclick="deleteProduct(${idx})" style="color:var(--neon-pink); background:none; border:none; cursor:pointer;">Eliminar</button></td>
-        </tr>
-      `).join('');
-    }
-
-    function deleteProduct(index) {
-      products.splice(index, 1);
-      saveProducts();
-      renderProducts();
-      renderAdminStock();
-    }
-
-    function handleAddNewProduct(e) {
-      e.preventDefault();
-      const newProd = {
-        id: Date.now(),
-        name: document.getElementById('newProdName').value,
-        price: parseFloat(document.getElementById('newProdPrice').value),
-        stock: parseInt(document.getElementById('newProdStock').value),
-        img: document.getElementById('newProdImg').value,
-        desc: document.getElementById('newProdDesc').value
-      };
-      products.push(newProd);
-      saveProducts();
-      renderProducts();
-      switchAdminTab('stock');
-    }
-
-    function handleAddTiktokVideo(e) {
-      e.preventDefault();
-      const url = document.getElementById('newTiktokUrl').value;
-      const match = url.match(/\/video\/(\d+)/);
-      if (match && match[1]) {
-        tiktoks.push(match[1]);
-        localStorage.setItem('tlt_tiktoks', JSON.stringify(tiktoks));
-        renderTiktoks();
-        alert('Vídeo añadido correctamente');
-      } else {
-        alert('URL de TikTok no válida');
-      }
-    }
-
-    function renderAdminList() {
-      const body = document.getElementById('adminsTableBody');
-      body.innerHTML = admins.map(a => `
-        <tr>
-          <td>${a.user}</td>
-          <td>-</td>
-        </tr>
-      `).join('');
-    }
-
-    function handleCreateAdmin(e) {
-      e.preventDefault();
-      const u = document.getElementById('newAdminUser').value;
-      const p = document.getElementById('newAdminPass').value;
-      admins.push({ user: u, pass: p, perms: [] });
-      localStorage.setItem('tlt_admins', JSON.stringify(admins));
-      renderAdminList();
-    }
-
-    function handleSaveGameConfig(e) { e.preventDefault(); alert('Configuración guardada.'); }
-    function handleStartGiveaway(e) { e.preventDefault(); alert('Sorteo guardado.'); }
-
-    // --- Motor Simple del Juego Arcade ---
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
-    let isPlaying = false;
-    let playerY = 300;
-    let playerVy = 0;
-    let obstacles = [];
-    let score = 0;
-
-    function initGame() {
-      isPlaying = true;
-      playerY = 300;
-      playerVy = 0;
-      obstacles = [];
-      score = 0;
-      document.getElementById('gameStatusText').innerText = '¡En carrera!';
-      requestAnimationFrame(gameLoop);
-    }
-
-    function jump() {
-      if (playerY >= 300) { playerVy = -12; }
-    }
-
-    document.addEventListener('keydown', (e) => {
-      if (e.code === 'Space') {
-        if (!isPlaying) initGame();
-        else jump();
-      }
-    });
-
-    document.getElementById('touchJumpBtn').addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      if (!isPlaying) initGame();
-      else jump();
-    });
-
-    function gameLoop() {
-      if (!isPlaying) return;
-
-      // Update
-      playerVy += 0.6;
-      playerY += playerVy;
-      if (playerY > 300) { playerY = 300; playerVy = 0; }
-
-      if (Math.random() < 0.02) {
-        obstacles.push({ x: 800, width: 20 });
-      }
-
-      for (let i = 0; i < obstacles.length; i++) {
-        obstacles[i].x -= 5;
-      }
-
-      // Colisiones
-      for (let i = 0; i < obstacles.length; i++) {
-        if (obstacles[i].x < 70 && obstacles[i].x > 30 && playerY >= 280) {
-          isPlaying = false;
-          document.getElementById('gameStatusText').innerText = `¡Game Over! Puntos: ${score}`;
-          return;
-        }
-      }
-
-      score++;
-
-      // Render
-      ctx.clearRect(0, 0, 800, 380);
-      
-      // Suelo
-      ctx.fillStyle = '#111';
-      ctx.fillRect(0, 330, 800, 50);
-
-      // Jugador
-      ctx.fillStyle = '#00f0ff';
-      ctx.fillRect(50, playerY, 30, 30);
-
-      // Obstáculos
-      ctx.fillStyle = '#ff0055';
-      obstacles.forEach(o => ctx.fillRect(o.x, 300, o.width, 30));
-
-      // Puntaje
-      ctx.fillStyle = '#fff';
-      ctx.font = '16px sans-serif';
-      ctx.fillText(`Distancia: ${score}m`, 20, 30);
-
-      requestAnimationFrame(gameLoop);
-    }
-
-    function initScrollObserver() {
-      const observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-          if (entry.isIntersecting) entry.target.classList.add('visible');
-        });
-      }, { threshold: 0.1 });
-
-      document.querySelectorAll('.seccion-transicion').forEach(s => observer.observe(s));
-    }
-  </script>
   </script>
 </body>
 </html>
