@@ -2136,6 +2136,317 @@
     }
 
     drawGame();
+    <script>
+    // --- Estado Global App ---
+    let products = JSON.parse(localStorage.getItem('tlt_products')) || [
+      { id: 1, name: 'Sudadera Heavy Weight TLT', price: 45.00, stock: 15, img: 'https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&w=600&q=80', desc: 'Sudadera de corte oversize con bordados HD.' },
+      { id: 2, name: 'Camiseta Street Toledo', price: 25.00, stock: 20, img: 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=600&q=80', desc: '100% Algodón peinado de alto gramaje.' }
+    ];
+
+    let tiktoks = JSON.parse(localStorage.getItem('tlt_tiktoks')) || ['7123456789012345678'];
+    let orders = JSON.parse(localStorage.getItem('tlt_orders')) || [];
+    let admins = JSON.parse(localStorage.getItem('tlt_admins')) || [{ user: 'admin', pass: '1234', perms: ['orders', 'add', 'stock', 'tiktok', 'game', 'giveaway', 'admins'] }];
+    let currentAdmin = null;
+    let selectedProductForBuy = null;
+
+    // --- Carga Inicial ---
+    document.addEventListener('DOMContentLoaded', () => {
+      renderProducts();
+      renderTiktoks();
+      initScrollObserver();
+    });
+
+    function saveProducts() { localStorage.setItem('tlt_products', JSON.stringify(products)); }
+    function saveOrders() { localStorage.setItem('tlt_orders', JSON.stringify(orders)); }
+
+    function renderProducts() {
+      const grid = document.getElementById('productGrid');
+      grid.innerHTML = products.map(p => `
+        <div class="product-card">
+          <div class="product-image-container">
+            <span class="product-brand-tag">TOLETUM</span>
+            <img src="${p.img}" class="product-img" alt="${p.name}">
+          </div>
+          <div class="product-info">
+            <h3>${p.name}</h3>
+            <div class="product-price">${p.price.toFixed(2)} €</div>
+            <div class="stock-tag ${p.stock > 0 ? 'in-stock' : 'out-stock'}">
+              ${p.stock > 0 ? `Stock Disponible (${p.stock})` : 'Agotado'}
+            </div>
+            <button class="btn-buy" ${p.stock <= 0 ? 'disabled' : ''} onclick="openCheckout(${p.id})">
+              ${p.stock > 0 ? 'Comprar' : 'Sin Stock'}
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderTiktoks() {
+      const grid = document.getElementById('tiktokGrid');
+      grid.innerHTML = tiktoks.map(id => `
+        <div class="tiktok-card">
+          <iframe src="https://www.tiktok.com/embed/v2/${id}" allowfullscreen></iframe>
+        </div>
+      `).join('');
+    }
+
+    function openCheckout(productId) {
+      selectedProductForBuy = products.find(p => p.id === productId);
+      if (!selectedProductForBuy) return;
+      document.getElementById('checkoutProductInfo').innerText = `Comprando: ${selectedProductForBuy.name} - ${selectedProductForBuy.price.toFixed(2)} €`;
+      document.getElementById('checkoutModal').style.display = 'flex';
+    }
+
+    function closeCheckout() {
+      document.getElementById('checkoutModal').style.display = 'none';
+      selectedProductForBuy = null;
+    }
+
+    function processOrder(e) {
+      e.preventDefault();
+      if (!selectedProductForBuy || selectedProductForBuy.stock <= 0) return;
+
+      selectedProductForBuy.stock--;
+      saveProducts();
+      renderProducts();
+
+      const newOrder = {
+        id: 'ORD-' + Date.now().toString().slice(-5),
+        product: selectedProductForBuy.name,
+        customer: document.getElementById('custName').value,
+        email: document.getElementById('custEmail').value,
+        payment: document.getElementById('paymentMethod').value,
+        status: 'Pedido Registrado'
+      };
+
+      orders.push(newOrder);
+      saveOrders();
+      closeCheckout();
+      alert('¡Pedido procesado con éxito!');
+    }
+
+    // --- Panel de Administración ---
+    function openLoginModal() { document.getElementById('loginModal').style.display = 'flex'; }
+    function closeLoginModal() { document.getElementById('loginModal').style.display = 'none'; }
+
+    function handleLogin(e) {
+      e.preventDefault();
+      const u = document.getElementById('adminUser').value;
+      const p = document.getElementById('adminPass').value;
+
+      const found = admins.find(a => a.user === u && a.pass === p);
+      if (found) {
+        currentAdmin = found;
+        closeLoginModal();
+        openAdminPanel();
+      } else {
+        alert('Credenciales incorrectas');
+      }
+    }
+
+    function openAdminPanel() {
+      document.getElementById('currentAdminBadge').innerText = `@${currentAdmin.user}`;
+      document.getElementById('adminPanelModal').style.display = 'flex';
+      switchAdminTab('orders');
+    }
+
+    function closeAdminPanel() { document.getElementById('adminPanelModal').style.display = 'none'; }
+
+    function switchAdminTab(tab) {
+      const tabs = ['orders', 'add', 'stock', 'tiktok', 'game', 'giveaway', 'admins'];
+      tabs.forEach(t => {
+        const el = document.getElementById(`tab${t.charAt(0).toUpperCase() + t.slice(1)}`);
+        const btn = document.getElementById(`tab${t.charAt(0).toUpperCase() + t.slice(1)}Btn`);
+        if (el) el.style.display = (t === tab) ? 'block' : 'none';
+        if (btn) btn.classList.toggle('active', t === tab);
+      });
+
+      if (tab === 'orders') renderAdminOrders();
+      if (tab === 'stock') renderAdminStock();
+      if (tab === 'admins') renderAdminList();
+    }
+
+    function renderAdminOrders() {
+      const body = document.getElementById('ordersTableBody');
+      body.innerHTML = orders.map(o => `
+        <tr>
+          <td>${o.id}</td>
+          <td>${o.product}</td>
+          <td>${o.customer} (${o.email})</td>
+          <td>${o.payment}</td>
+          <td>${o.status}</td>
+          <td>-</td>
+        </tr>
+      `).join('');
+    }
+
+    function renderAdminStock() {
+      const body = document.getElementById('stockTableBody');
+      body.innerHTML = products.map((p, idx) => `
+        <tr>
+          <td>${p.name}</td>
+          <td>${p.price.toFixed(2)} €</td>
+          <td>${p.stock}</td>
+          <td><button onclick="deleteProduct(${idx})" style="color:var(--neon-pink); background:none; border:none; cursor:pointer;">Eliminar</button></td>
+        </tr>
+      `).join('');
+    }
+
+    function deleteProduct(index) {
+      products.splice(index, 1);
+      saveProducts();
+      renderProducts();
+      renderAdminStock();
+    }
+
+    function handleAddNewProduct(e) {
+      e.preventDefault();
+      const newProd = {
+        id: Date.now(),
+        name: document.getElementById('newProdName').value,
+        price: parseFloat(document.getElementById('newProdPrice').value),
+        stock: parseInt(document.getElementById('newProdStock').value),
+        img: document.getElementById('newProdImg').value,
+        desc: document.getElementById('newProdDesc').value
+      };
+      products.push(newProd);
+      saveProducts();
+      renderProducts();
+      switchAdminTab('stock');
+    }
+
+    function handleAddTiktokVideo(e) {
+      e.preventDefault();
+      const url = document.getElementById('newTiktokUrl').value;
+      const match = url.match(/\/video\/(\d+)/);
+      if (match && match[1]) {
+        tiktoks.push(match[1]);
+        localStorage.setItem('tlt_tiktoks', JSON.stringify(tiktoks));
+        renderTiktoks();
+        alert('Vídeo añadido correctamente');
+      } else {
+        alert('URL de TikTok no válida');
+      }
+    }
+
+    function renderAdminList() {
+      const body = document.getElementById('adminsTableBody');
+      body.innerHTML = admins.map(a => `
+        <tr>
+          <td>${a.user}</td>
+          <td>-</td>
+        </tr>
+      `).join('');
+    }
+
+    function handleCreateAdmin(e) {
+      e.preventDefault();
+      const u = document.getElementById('newAdminUser').value;
+      const p = document.getElementById('newAdminPass').value;
+      admins.push({ user: u, pass: p, perms: [] });
+      localStorage.setItem('tlt_admins', JSON.stringify(admins));
+      renderAdminList();
+    }
+
+    function handleSaveGameConfig(e) { e.preventDefault(); alert('Configuración guardada.'); }
+    function handleStartGiveaway(e) { e.preventDefault(); alert('Sorteo guardado.'); }
+
+    // --- Motor Simple del Juego Arcade ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    let isPlaying = false;
+    let playerY = 300;
+    let playerVy = 0;
+    let obstacles = [];
+    let score = 0;
+
+    function initGame() {
+      isPlaying = true;
+      playerY = 300;
+      playerVy = 0;
+      obstacles = [];
+      score = 0;
+      document.getElementById('gameStatusText').innerText = '¡En carrera!';
+      requestAnimationFrame(gameLoop);
+    }
+
+    function jump() {
+      if (playerY >= 300) { playerVy = -12; }
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') {
+        if (!isPlaying) initGame();
+        else jump();
+      }
+    });
+
+    document.getElementById('touchJumpBtn').addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (!isPlaying) initGame();
+      else jump();
+    });
+
+    function gameLoop() {
+      if (!isPlaying) return;
+
+      // Update
+      playerVy += 0.6;
+      playerY += playerVy;
+      if (playerY > 300) { playerY = 300; playerVy = 0; }
+
+      if (Math.random() < 0.02) {
+        obstacles.push({ x: 800, width: 20 });
+      }
+
+      for (let i = 0; i < obstacles.length; i++) {
+        obstacles[i].x -= 5;
+      }
+
+      // Colisiones
+      for (let i = 0; i < obstacles.length; i++) {
+        if (obstacles[i].x < 70 && obstacles[i].x > 30 && playerY >= 280) {
+          isPlaying = false;
+          document.getElementById('gameStatusText').innerText = `¡Game Over! Puntos: ${score}`;
+          return;
+        }
+      }
+
+      score++;
+
+      // Render
+      ctx.clearRect(0, 0, 800, 380);
+      
+      // Suelo
+      ctx.fillStyle = '#111';
+      ctx.fillRect(0, 330, 800, 50);
+
+      // Jugador
+      ctx.fillStyle = '#00f0ff';
+      ctx.fillRect(50, playerY, 30, 30);
+
+      // Obstáculos
+      ctx.fillStyle = '#ff0055';
+      obstacles.forEach(o => ctx.fillRect(o.x, 300, o.width, 30));
+
+      // Puntaje
+      ctx.fillStyle = '#fff';
+      ctx.font = '16px sans-serif';
+      ctx.fillText(`Distancia: ${score}m`, 20, 30);
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    function initScrollObserver() {
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) entry.target.classList.add('visible');
+        });
+      }, { threshold: 0.1 });
+
+      document.querySelectorAll('.seccion-transicion').forEach(s => observer.observe(s));
+    }
+  </script>
   </script>
 </body>
 </html>
